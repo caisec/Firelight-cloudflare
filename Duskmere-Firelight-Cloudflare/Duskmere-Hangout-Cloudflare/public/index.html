@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Duskmere — Firelight</title>
+<style>
+:root{--ink:#111126;--panel:rgba(25,24,44,.92);--panel2:#24223d;--line:#514b68;--text:#f5eee2;--muted:#c0b8c9;--gold:#f6bd66;--coral:#f07862;--green:#8ed5a4}
+*{box-sizing:border-box}html,body{height:100%;margin:0;background:#100f1d;color:var(--text);font:15px/1.45 ui-rounded,system-ui,-apple-system,"Segoe UI",sans-serif}button,input{font:inherit}button{color:inherit;cursor:pointer}#app{position:fixed;inset:0;overflow:hidden}#world{width:100%;height:100%;display:block;touch-action:none}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;backdrop-filter:blur(14px);box-shadow:0 16px 60px #05040b70}.btn{border:1px solid #675d77;background:#302c49;color:var(--text);padding:10px 14px;border-radius:11px;font-weight:650;transition:.15s}.btn:hover{border-color:var(--gold);transform:translateY(-1px)}.btn.primary{background:var(--gold);color:#302014;border-color:var(--gold)}.btn.ghost{background:#ffffff0b}.btn.active{background:#674325;border-color:var(--gold)}.btn:disabled{opacity:.35;cursor:not-allowed;transform:none}
+#landing{position:absolute;inset:0;z-index:10;display:grid;place-items:center;background:linear-gradient(180deg,#100f1d66,#100f1ddd);padding:18px}.landing-card{width:min(540px,100%);padding:30px}.eyebrow{color:var(--gold);letter-spacing:.18em;text-transform:uppercase;font-size:11px;font-weight:800}.landing-card h1{font:700 clamp(42px,10vw,66px)/.95 Georgia,serif;margin:8px 0 12px;color:#ffe4ba}.landing-card p{color:var(--muted);margin:0 0 20px}.fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{display:grid;gap:6px;color:var(--muted);font-size:12px;font-weight:650}.field input,.field select{border:1px solid #5b536b;border-radius:10px;padding:10px 11px;background:#18172a;color:var(--text);min-width:0}.field input[type=color]{height:42px;padding:4px;width:100%}.field.full{grid-column:1/-1}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}.hint{font-size:12px;color:#ada5b6;margin-top:16px}.logo-fire{font-size:31px;vertical-align:middle}
+#topbar{position:absolute;top:max(12px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:3;display:flex;align-items:center;gap:8px;padding:8px 10px;max-width:calc(100% - 24px)}.brand{font:700 18px Georgia,serif;color:#ffe2b4;padding:0 8px;white-space:nowrap}.room-badge{color:var(--gold);font-size:12px;font-weight:800;letter-spacing:.12em;padding:7px 10px;background:#ffffff0b;border-radius:8px;white-space:nowrap}.icon-btn{width:42px;height:42px;padding:0;display:grid;place-items:center;font-size:18px}.icon-btn.on{color:var(--green);border-color:var(--green)}
+#side{position:absolute;z-index:2;right:14px;top:78px;bottom:100px;width:min(320px,calc(100vw - 28px));display:flex;flex-direction:column;overflow:hidden;transition:transform .2s}.side-head{padding:13px 15px 8px;display:flex;align-items:center;justify-content:space-between}.side-head h2{font:700 21px Georgia,serif;margin:0;color:#ffe2b4}.online{font-size:12px;color:var(--green)}#roster{padding:0 13px 10px;display:flex;gap:6px;flex-wrap:wrap;max-height:90px;overflow:auto}.person{font-size:12px;padding:5px 8px;border:1px solid #ffffff1e;border-radius:99px;color:#eee6dc;background:#ffffff08}.person .voice{color:var(--green)}#chatlog{flex:1;min-height:0;overflow:auto;padding:2px 14px 10px;display:flex;flex-direction:column;gap:8px;user-select:text}.msg{font-size:13px;overflow-wrap:anywhere}.msg .name{font-weight:800;color:var(--gold);margin-right:6px}.msg.system{font-size:12px;color:#aaa1b6;font-style:italic}.chat-form{display:flex;gap:7px;padding:10px;border-top:1px solid #ffffff18}.chat-form input{flex:1;min-width:0;padding:10px;border-radius:10px;border:1px solid #5a5267;background:#171629;color:var(--text);outline:none}.chat-form input:focus{border-color:var(--gold)}.chat-form button{padding:8px 12px}
+#bottom{position:absolute;z-index:2;bottom:max(14px,env(safe-area-inset-bottom));left:14px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;max-width:calc(100% - 350px)}#emotes{display:flex;gap:6px;padding:8px}.emote{font-size:20px;width:42px;height:42px;padding:0}.help{font-size:11px;color:#f4e5d1a8;padding:0 8px 5px}
+#toast{position:absolute;z-index:20;left:50%;top:84px;transform:translateX(-50%);padding:10px 16px;background:#25223bee;border:1px solid var(--gold);border-radius:10px;max-width:90vw;text-align:center;pointer-events:none}
+.modal{position:absolute;z-index:12;inset:0;background:#090815b8;display:grid;place-items:center;padding:14px}.modal[hidden],#landing[hidden],#toast[hidden]{display:none}.modal-card{width:min(590px,100%);max-height:min(90vh,760px);overflow:auto;padding:20px}.modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.modal-head h2{font:700 28px Georgia,serif;color:#ffe2b4;margin:0}.close{width:38px;height:38px;padding:0}.customize{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}.customize .field{font-size:12px}
+#chessModal .modal-card{width:min(570px,100%)}.chess-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0 14px;color:var(--muted)}#board{width:min(84vw,440px);aspect-ratio:1;display:grid;grid-template-columns:repeat(8,1fr);margin:auto;border:5px solid #5a392b;border-radius:7px;overflow:hidden;box-shadow:0 12px 40px #0008}.sq{display:grid;place-items:center;font-family:Georgia,serif;font-size:clamp(24px,7vw,48px);user-select:none;position:relative}.sq.light{background:#e9d8b9;color:#261e1b}.sq.dark{background:#80604b;color:#241a18}.sq.selected{box-shadow:inset 0 0 0 4px #f6bd66}.sq.target:after{content:"";width:26%;height:26%;border-radius:100%;background:#f6bd668a;position:absolute}.sq.last{box-shadow:inset 0 0 0 3px #d1a75b80}.chess-foot{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:12px;font-size:12px;color:var(--muted)}
+#audioBin{display:none}.mobile-note{display:none}@media(max-width:700px){#topbar{left:8px;right:8px;transform:none;width:auto;justify-content:center;gap:5px;padding:6px}.brand{font-size:15px;padding:0 3px}.room-badge{font-size:10px;padding:6px}.icon-btn{width:38px;height:38px}.icon-btn.hide-mobile{display:none}#side{right:9px;top:auto;bottom:86px;width:min(290px,calc(100vw - 18px));height:38vh;min-height:210px;transform:translateX(calc(100% + 12px))}#side.open{transform:translateX(0)}#bottom{left:8px;bottom:8px;max-width:calc(100% - 12px);gap:4px}.help{display:none}#emotes{gap:3px;padding:5px}.emote{width:37px;height:37px;font-size:18px}.mobile-note{display:inline}#chatToggle{display:grid}}
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="world"></canvas>
+  <div id="topbar" class="panel">
+    <span class="brand">Duskmere <span class="logo-fire">🔥</span></span>
+    <span id="roomBadge" class="room-badge">NOT CONNECTED</span>
+    <button id="micBtn" class="btn icon-btn" title="Voice chat" aria-label="Toggle microphone">🎙️</button>
+    <button id="customBtn" class="btn icon-btn hide-mobile" title="Customize avatar" aria-label="Customize avatar">🎨</button>
+    <button id="chessBtn" class="btn icon-btn" title="Play chess" aria-label="Play chess">♟️</button>
+    <button id="chatToggle" class="btn icon-btn" title="Toggle chat" aria-label="Toggle chat">💬</button>
+    <button id="leaveBtn" class="btn icon-btn hide-mobile" title="Leave room" aria-label="Leave room">↩</button>
+  </div>
+  <aside id="side" class="panel">
+    <div class="side-head"><h2>By the fire</h2><span id="online" class="online">0 here</span></div>
+    <div id="roster"></div>
+    <div id="chatlog" aria-live="polite"></div>
+    <form id="chatForm" class="chat-form"><input id="chatInput" maxlength="400" autocomplete="off" placeholder="Say something…"><button class="btn primary">Send</button></form>
+  </aside>
+  <div id="bottom">
+    <div id="emotes" class="panel">
+      <button class="btn emote" data-emote="wave" title="Wave">👋</button>
+      <button class="btn emote" data-emote="dance" title="Dance">🕺</button>
+      <button class="btn emote" data-emote="sit" title="Sit by the fire">🪑</button>
+      <button class="btn emote" data-emote="laugh" title="Laugh">😂</button>
+      <button class="btn emote" data-emote="heart" title="Send a heart">💛</button>
+    </div>
+    <div class="help">WASD move · drag to look · click ground to walk · wheel to zoom</div>
+  </div>
+  <div id="toast" hidden></div>
+  <div id="audioBin"></div>
+</div>
+<div id="landing">
+  <section class="landing-card panel">
+    <div class="eyebrow">A little place to linger</div>
+    <h1>Firelight</h1>
+    <p>Meet your friends at a quiet campfire. Talk, wander, dance, or play a game of chess under the Duskmere stars.</p>
+    <div class="fields">
+      <label class="field">Your name<input id="nameInput" maxlength="18" value="Friend" placeholder="Name"></label>
+      <label class="field">Room code<input id="roomInput" maxlength="6" placeholder="For joining"></label>
+      <label class="field">Coat color<input id="coatInput" type="color" value="#8f6ad8"></label>
+      <label class="field">Hair color<input id="hairInput" type="color" value="#342719"></label>
+    </div>
+    <div class="actions"><button id="createBtn" class="btn primary">Start a new hangout</button><button id="joinBtn" class="btn">Join a room</button></div>
+    <div class="hint">For voice chat, allow microphone access. Online rooms need HTTPS; the included Render setup provides it.</div>
+  </section>
+</div>
+<div id="customModal" class="modal" hidden><section class="modal-card panel"><div class="modal-head"><h2>Your look</h2><button class="btn close" data-close="customModal">×</button></div><p style="color:var(--muted)">Choose colors for your little campfire wanderer.</p><div class="customize"><label class="field">Coat<input id="coatEdit" type="color" value="#8f6ad8"></label><label class="field">Hair<input id="hairEdit" type="color" value="#342719"></label><label class="field">Skin<input id="skinEdit" type="color" value="#e0a97f"></label></div><button id="saveAvatar" class="btn primary">Save my look</button></section></div>
+<div id="chessModal" class="modal" hidden><section class="modal-card panel"><div class="modal-head"><h2>Campfire chess</h2><button class="btn close" data-close="chessModal">×</button></div><div class="chess-top"><span id="chessStatus">White to move</span><span id="chessSeat"></span></div><div id="board"></div><div class="chess-foot"><span>White plays first. Friends beyond the two seats can watch.</span><button id="resetChess" class="btn ghost">New game</button></div></section></div>
+<script src="/three.min.js"></script><script src="/chess.min.js"></script><script src="/client.js"></script>
+</body></html>
