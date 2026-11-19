@@ -179,7 +179,7 @@
     const ready=chessSeatsReady();board.classList.toggle('waiting',!ready);
     const whiteView=myColor!=='black';
     for(let i=0;i<64;i++){
-      const row=Math.floor(i/8),rank=whiteView?7-row:row,file=whiteView?i%8:7-(i%8),sq=String.fromCharCode(97+file)+(rank+1),piece=boardArray[rank][file];
+      const row=Math.floor(i/8),rank=whiteView?7-row:row,file=whiteView?i%8:7-(i%8),sq=String.fromCharCode(97+file)+(rank+1),piece=boardArray[7-rank][file];
       const cell=document.createElement('button');cell.type='button';cell.className='sq '+((rank+file)%2?'dark':'light');cell.dataset.square=sq;
       if(selectedSquare===sq)cell.classList.add('selected');if(validTargets.includes(sq))cell.classList.add('target');if(lastMove.split('-').includes(sq))cell.classList.add('last');
       if(piece){const glyph=document.createElement('span');glyph.className='piece '+(piece.color==='w'?'white':'black');glyph.textContent=({w:{k:'♔',q:'♕',r:'♖',b:'♗',n:'♘',p:'♙'},b:{k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟'}}[piece.color][piece.type]);cell.append(glyph);}
