@@ -1,5 +1,6 @@
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const MAX_PLAYERS = 8;
+const NAME_COLORS = ['#ffd166','#72d6c8','#d9a2ff','#ff8f82','#a9de78','#84bfff','#ffb36b','#f28eb2'];
 
 export default {
   async fetch(request, env) {
@@ -77,7 +78,14 @@ export class Room {
       if (target) await this.send(target, { type: 'signal', from: p.id, description: data.description, candidate: data.candidate });
     } else if (data.type === 'chessMove') {
       if (p.color !== 'white' && p.color !== 'black') return;
-      room.chessFen = typeof data.fen === 'string' ? data.fen.slice(0, 200) : room.chessFen;
+      const currentTurn = room.chessFen ? room.chessFen.split(' ')[1] : 'w';
+      const expectedColor = currentTurn === 'w' ? 'white' : 'black';
+      const nextFen = typeof data.fen === 'string' ? data.fen.slice(0, 200) : '';
+      const nextTurn = nextFen.split(' ')[1];
+      if (p.color !== expectedColor || !data.move || nextTurn !== (currentTurn === 'w' ? 'b' : 'w')) {
+        return this.send(ws, { type:'chessReject', fen:room.chessFen, message:'It is not your color’s turn.' });
+      }
+      room.chessFen = nextFen;
       await this.ctx.storage.put('room', room);
       await this.broadcast({ type: 'chessMove', from: p.id, move: data.move, fen: room.chessFen });
     } else if (data.type === 'chessReset' && p.id === room.host) {
@@ -92,20 +100,22 @@ export class Room {
     const id = crypto.randomUUID().replaceAll('-', '').slice(0, 12);
     const name = String(data.name || 'Friend').replace(/\s+/g, ' ').trim().slice(0, 18) || 'Friend';
     const color = room.host === null ? 'white' : (others.some(p => p.color === 'black') ? 'spectator' : 'black');
-    const p = { joined: true, id, name, color, avatar: this.cleanAvatar(data.avatar), voice: false };
+    const usedNames = new Set(others.map(p => p.nameColor));
+    const nameColor = NAME_COLORS.find(c => !usedNames.has(c)) || NAME_COLORS[others.length % NAME_COLORS.length];
+    const p = { joined: true, id, name, color, nameColor, avatar: this.cleanAvatar(data.avatar), voice: false };
     if (room.host === null) room.host = id;
     await this.ctx.storage.put('room', room);
     ws.serializeAttachment(p);
     const players = [...others, p];
     await this.send(ws, { type: 'welcome', id, room: room.code, host: id === room.host,
-      players, chessFen: room.chessFen, iceServers: this.iceServers() });
+      players, chessFen: room.chessFen, iceServers: await this.iceServers() });
     await this.broadcast({ type: 'players', players }, ws);
   }
 
   async players() {
     const out = [];
     for (const ws of this.ctx.getWebSockets()) {
-      try { const p = ws.deserializeAttachment(); if (p && p.joined) out.push({ id:p.id, name:p.name, color:p.color, avatar:p.avatar, voice:!!p.voice }); }
+      try { const p = ws.deserializeAttachment(); if (p && p.joined) out.push({ id:p.id, name:p.name, color:p.color, nameColor:p.nameColor, avatar:p.avatar, voice:!!p.voice }); }
       catch {}
     }
     return out;
@@ -137,10 +147,32 @@ export class Room {
     return { coat:color('coat','#8f6ad8'), hair:color('hair','#342719'), skin:color('skin','#e0a97f') };
   }
 
-  iceServers() {
-    const out = [{ urls:'stun:stun.l.google.com:19302' }, { urls:'stun:stun1.l.google.com:19302' }];
-    if (this.env.TURN_URL) out.push({ urls:this.env.TURN_URL, username:this.env.TURN_USERNAME || '', credential:this.env.TURN_CREDENTIAL || '' });
-    return out;
+  async iceServers() {
+    const fallback = [{ urls:'stun:stun.cloudflare.com:3478' }, { urls:'stun:stun.l.google.com:19302' }];
+    // Prefer Metered's per-credential API key; keep it server-side as a Worker secret.
+    if (this.env.METERED_APP_DOMAIN && this.env.METERED_TURN_API_KEY) {
+      try {
+        const domain = String(this.env.METERED_APP_DOMAIN).trim().replace(/[^a-zA-Z0-9-]/g,'');
+        const response = await fetch(`https://${domain}.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(this.env.METERED_TURN_API_KEY)}`);
+        const data = await response.json();
+        if (response.ok && Array.isArray(data) && data.some(server => String(server.urls || '').startsWith('turn'))) return data;
+        console.warn('Metered TURN credential request failed:', response.status);
+      } catch (error) { console.warn('Metered TURN credential request failed:', error); }
+    }
+    // Cloudflare Realtime issues expiring TURN credentials; keep its API token server-side too.
+    if (this.env.CF_TURN_KEY_ID && this.env.CF_TURN_API_TOKEN) {
+      try {
+        const response = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(this.env.CF_TURN_KEY_ID)}/credentials/generate-ice-servers`, {
+          method:'POST', headers:{'Authorization':`Bearer ${this.env.CF_TURN_API_TOKEN}`,'Content-Type':'application/json'},
+          body:JSON.stringify({ttl:21600})
+        });
+        const data = await response.json();
+        if (response.ok && Array.isArray(data.iceServers) && data.iceServers.length) return data.iceServers;
+        console.warn('TURN credential request failed:', response.status);
+      } catch (error) { console.warn('TURN credential request failed:', error); }
+    }
+    if (this.env.TURN_URL) fallback.push({ urls:this.env.TURN_URL, username:this.env.TURN_USERNAME || '', credential:this.env.TURN_CREDENTIAL || '' });
+    return fallback;
   }
 
   async webSocketClose(ws) {
