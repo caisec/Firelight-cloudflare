@@ -2,7 +2,7 @@
 (() => {
   const $=id=>document.getElementById(id), canvas=$('world');
   let ws=null, me=null, roomCode='', isHost=false, myColor='spectator', roster=[], localStream=null, micOn=false;
-  let rtcConfig={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
+  let rtcConfig={iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]};
   const peerLinks=new Map(), avatars=new Map(), keys={}, ray=new THREE.Raycaster(), ndc=new THREE.Vector2();
   const avatarConfig={coat:'#8f6ad8',hair:'#342719',skin:'#e0a97f'};
   let toastTimer=0, selectedSquare=null, validTargets=[], lastMove='';
@@ -49,6 +49,18 @@
     const torso=new THREE.Mesh(new THREE.CylinderGeometry(.34,.43,.95,10),coat);torso.position.y=1.06;torso.castShadow=true;body.add(torso);
     const head=new THREE.Mesh(new THREE.SphereGeometry(.34,14,12),skin);head.position.y=1.83;head.castShadow=true;body.add(head);
     const hairCap=new THREE.Mesh(new THREE.SphereGeometry(.36,14,8,0,Math.PI*2,0,Math.PI*.56),hair);hairCap.position.y=2;hairCap.castShadow=true;body.add(hairCap);
+    // Friendly readable face: whites, bright irises, brows, a little nose and smile.
+    const face=new THREE.Group();face.position.y=1.83;body.add(face);
+    const eyeWhite=new THREE.MeshBasicMaterial({color:0xfff8ea}),iris=new THREE.MeshBasicMaterial({color:config.eyes||0x58a9b7}),pupil=new THREE.MeshBasicMaterial({color:0x151522}),mouthMat=new THREE.MeshBasicMaterial({color:0x873e3c});
+    const eyes=[];
+    for(const x of [-.12,.12]){
+      const white=new THREE.Mesh(new THREE.SphereGeometry(.058,10,8),eyeWhite);white.position.set(x,.025,.302);face.add(white);
+      const color=new THREE.Mesh(new THREE.SphereGeometry(.032,10,8),iris);color.position.set(x,.02,.35);face.add(color);eyes.push(color);
+      const black=new THREE.Mesh(new THREE.SphereGeometry(.017,8,8),pupil);black.position.set(x,.02,.376);face.add(black);
+      const brow=new THREE.Mesh(new THREE.BoxGeometry(.12,.026,.028),hair);brow.position.set(x,.108,.365);brow.rotation.z=x<0?-.08:.08;face.add(brow);
+    }
+    const nose=new THREE.Mesh(new THREE.SphereGeometry(.037,10,8),skin);nose.scale.set(.78,1,.72);nose.position.set(0,-.05,.335);face.add(nose);
+    const smile=new THREE.Mesh(new THREE.BoxGeometry(.105,.022,.018),mouthMat);smile.position.set(0,-.137,.319);face.add(smile);
     const legMat=dark;const legs=[];for(const s of [-1,1]){let leg=new THREE.Mesh(new THREE.CylinderGeometry(.12,.14,.65,8),legMat);leg.position.set(s*.16,.4,0);body.add(leg);legs.push(leg);}
     const arms=[];for(const s of [-1,1]){let pivot=new THREE.Group();pivot.position.set(s*.39,1.42,0);body.add(pivot);let arm=new THREE.Mesh(new THREE.CylinderGeometry(.105,.13,.64,8),coat);arm.position.y=-.28;arm.rotation.z=-s*.1;pivot.add(arm);arms.push(pivot);}
     let label=document.createElement('div');label.className='tag';label.textContent=name;Object.assign(label.style,{position:'absolute',left:'0',top:'0',padding:'3px 9px',borderRadius:'99px',background:'rgba(16,15,29,.78)',border:'1px solid #ffffff33',color:isMe?'#ffe2b4':'#fff4e7',font:'700 12px system-ui',whiteSpace:'nowrap'});avatarTags.appendChild(label);
@@ -63,7 +75,8 @@
     for(const p of list){if(p.id===me){myColor=p.color;continue;}let a=makeAvatar(p.id,p.name,p.avatar);a.name=p.name;if(!peerLinks.has(p.id))ensurePeer(p.id);}
     $('online').textContent=`${list.length} here`;
     $('roster').replaceChildren(...list.map(p=>{let e=document.createElement('span');e.className='person';e.textContent=p.name+(p.id===me?' (you)':'')+(p.color==='white'?' ♔':p.color==='black'?' ♚':'');if(p.voice){let v=document.createElement('b');v.className='voice';v.textContent=' · mic';e.append(v);}return e;}));
-    $('chessSeat').textContent=myColor==='white'?'You are White':myColor==='black'?'You are Black':'You are watching';
+    const whiteName=list.find(p=>p.color==='white')?.name||'waiting',blackName=list.find(p=>p.color==='black')?.name||'waiting';
+    $('chessSeat').textContent=`♔ ${whiteName}  ·  ♚ ${blackName}`;
     renderBoard();
   }
   function toast(text,ms=2800){const t=$('toast');t.textContent=text;t.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.hidden=true,ms);}
@@ -115,8 +128,15 @@
     const pc=new RTCPeerConnection(rtcConfig),trans=pc.addTransceiver('audio',{direction:'sendrecv'}),entry={pc,trans,pending:[],remote:null};peerLinks.set(id,entry);
     if(localStream)trans.sender.replaceTrack(localStream.getAudioTracks()[0]||null).catch(()=>{});
     pc.onicecandidate=e=>{if(e.candidate)send({type:'signal',to:id,candidate:e.candidate});};
-    pc.ontrack=e=>{const stream=e.streams&&e.streams[0];if(!stream)return;entry.remote=stream;let audio=document.getElementById('audio-'+id);if(!audio){audio=document.createElement('audio');audio.id='audio-'+id;audio.autoplay=true;audio.playsInline=true;$('audioBin').append(audio);}audio.srcObject=stream;audio.play().catch(()=>{});};
-    pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed'||pc.connectionState==='closed')closePeer(id);};
+    pc.ontrack=e=>{
+      // addTransceiver() can deliver a streamless track in some browsers; wrap it in a MediaStream.
+      let stream=e.streams&&e.streams[0];
+      if(!stream){stream=entry.remote||new MediaStream();if(!stream.getTracks().some(t=>t.id===e.track.id))stream.addTrack(e.track);}
+      entry.remote=stream;let audio=document.getElementById('audio-'+id);
+      if(!audio){audio=document.createElement('audio');audio.id='audio-'+id;audio.autoplay=true;audio.playsInline=true;audio.muted=false;audio.volume=1;$('audioBin').append(audio);}
+      audio.srcObject=stream;audio.play().catch(()=>toast('Voice is connected. Tap the microphone once to enable incoming audio.',5000));
+    };
+    pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed')toast('Voice connection blocked by the network. A TURN relay may be needed.',6000);};
     if(me<id)pc.createOffer().then(o=>pc.setLocalDescription(o)).then(()=>send({type:'signal',to:id,description:pc.localDescription})).catch(()=>{});
     return entry;
   }
@@ -132,7 +152,9 @@
   $('micBtn').onclick=async()=>{
     if(!me){toast('Join a room before turning on voice chat.');return;}
     if(micOn){micOn=false;if(localStream)localStream.getTracks().forEach(t=>t.stop());localStream=null;for(const e of peerLinks.values())e.trans.sender.replaceTrack(null).catch(()=>{});$('micBtn').classList.remove('on');send({type:'voice',enabled:false});toast('Microphone muted.');return;}
-    try{localStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});micOn=true;for(const p of roster)if(p.id!==me){const e=ensurePeer(p.id);if(e)e.trans.sender.replaceTrack(localStream.getAudioTracks()[0]);}$('micBtn').classList.add('on');send({type:'voice',enabled:true});toast('Voice chat is on. You can mute any time.');}
+    // A real button gesture can also unlock autoplay for incoming voice in stricter browsers.
+    document.querySelectorAll('#audioBin audio').forEach(a=>a.play().catch(()=>{}));
+    try{localStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});micOn=true;const track=localStream.getAudioTracks()[0];for(const p of roster)if(p.id!==me){const e=ensurePeer(p.id);if(e)await e.trans.sender.replaceTrack(track).catch(()=>{});}document.querySelectorAll('#audioBin audio').forEach(a=>a.play().catch(()=>{}));$('micBtn').classList.add('on');send({type:'voice',enabled:true});toast('Voice chat is on. You can mute any time.');}
     catch(e){toast('Microphone permission was blocked, or no microphone was found.',4500);micOn=false;}
   };
 
@@ -150,21 +172,24 @@
 
   // Legal shared chess powered by the bundled chess.js rules engine.
   const chess=new Chess();
-  function filesq(sq){return 'abcdefgh'.indexOf(sq[0]);}
+  const chessSeatsReady=()=>roster.some(p=>p.color==='white')&&roster.some(p=>p.color==='black');
   function renderBoard(){
     if(!$('board'))return;const board=$('board');board.replaceChildren();const boardArray=chess.board();
+    const ready=chessSeatsReady();board.classList.toggle('waiting',!ready);
     const whiteView=myColor!=='black';
     for(let i=0;i<64;i++){
-      const rank=7-Math.floor(i/8),file=whiteView?i%8:7-(i%8),sq=String.fromCharCode(97+file)+(rank+1),piece=boardArray[rank][file];
+      const row=Math.floor(i/8),rank=whiteView?7-row:row,file=whiteView?i%8:7-(i%8),sq=String.fromCharCode(97+file)+(rank+1),piece=boardArray[rank][file];
       const cell=document.createElement('button');cell.type='button';cell.className='sq '+((rank+file)%2?'dark':'light');cell.dataset.square=sq;
       if(selectedSquare===sq)cell.classList.add('selected');if(validTargets.includes(sq))cell.classList.add('target');if(lastMove.split('-').includes(sq))cell.classList.add('last');
-      cell.textContent=piece?({w:{k:'♔',q:'♕',r:'♖',b:'♗',n:'♘',p:'♙'},b:{k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟'}}[piece.color][piece.type]):'';
+      if(piece){const glyph=document.createElement('span');glyph.className='piece '+(piece.color==='w'?'white':'black');glyph.textContent=({w:{k:'♔',q:'♕',r:'♖',b:'♗',n:'♘',p:'♙'},b:{k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟'}}[piece.color][piece.type]);cell.append(glyph);}
+      if((whiteView&&file===0)||(!whiteView&&file===7)){const c=document.createElement('small');c.className='coord rank';c.textContent=String(rank+1);cell.append(c);}
+      if((whiteView&&rank===0)||(!whiteView&&rank===7)){const c=document.createElement('small');c.className='coord file';c.textContent=String.fromCharCode(97+file);cell.append(c);}
       cell.onclick=()=>boardClick(sq);board.append(cell);
     }
-    let status=chess.in_checkmate()?'Checkmate — '+(chess.turn()==='w'?'Black':'White')+' wins':chess.in_draw()?'Draw':(chess.turn()==='w'?'White':'Black')+' to move'+(chess.in_check()?' · check':'');$('chessStatus').textContent=status;
-    $('resetChess').disabled=!isHost;
+    let status=!ready?'Waiting for a second friend to take Black':chess.in_checkmate()?'Checkmate — '+(chess.turn()==='w'?'Black':'White')+' wins':chess.in_draw()?'Draw':(chess.turn()==='w'?'White':'Black')+' to move'+(chess.in_check()?' · check':'');$('chessStatus').textContent=status;
+    $('resetChess').disabled=!isHost||!ready;
   }
-  function boardClick(sq){if(!me)return;const mine=(myColor==='white'&&chess.turn()==='w')||(myColor==='black'&&chess.turn()==='b');if(!mine){toast('Wait for your color to move.');return;}
+  function boardClick(sq){if(!me)return;if(!chessSeatsReady()){toast('Invite one friend to join as Black before starting chess.');return;}if(myColor!=='white'&&myColor!=='black'){toast('You are watching this game. The two players make the moves.');return;}const mine=(myColor==='white'&&chess.turn()==='w')||(myColor==='black'&&chess.turn()==='b');if(!mine){toast('Wait for your color to move.');return;}
     const piece=chess.get(sq);
     if(selectedSquare&&validTargets.includes(sq)){
       let move=chess.move({from:selectedSquare,to:sq,promotion:'q'});if(move){lastMove=move.from+'-'+move.to;selectedSquare=null;validTargets=[];renderBoard();send({type:'chessMove',move:{from:move.from,to:move.to,promotion:move.promotion},fen:chess.fen()});return;}}
