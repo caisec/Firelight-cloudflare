@@ -138,7 +138,7 @@ export class Room {
   }
 
   iceServers() {
-    const out = [{ urls:'stun:stun.l.google.com:19302' }];
+    const out = [{ urls:'stun:stun.l.google.com:19302' }, { urls:'stun:stun1.l.google.com:19302' }];
     if (this.env.TURN_URL) out.push({ urls:this.env.TURN_URL, username:this.env.TURN_USERNAME || '', credential:this.env.TURN_CREDENTIAL || '' });
     return out;
   }
