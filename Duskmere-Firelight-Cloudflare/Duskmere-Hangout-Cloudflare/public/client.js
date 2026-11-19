@@ -72,16 +72,16 @@
     roster=list;
     const active=new Set(list.map(p=>p.id));
     for(const [id,a] of avatars)if(!a.isMe&&!active.has(id)){scene.remove(a.root);a.label.remove();avatars.delete(id);closePeer(id);}
-    for(const p of list){if(p.id===me){myColor=p.color;continue;}let a=makeAvatar(p.id,p.name,p.avatar);a.name=p.name;if(!peerLinks.has(p.id))ensurePeer(p.id);}
+    for(const p of list){if(p.id===me){myColor=p.color;continue;}let a=makeAvatar(p.id,p.name,p.avatar);a.name=p.name;a.nameColor=p.nameColor||'#fff4e7';a.label.style.color=a.nameColor;if(!peerLinks.has(p.id))ensurePeer(p.id);}
     $('online').textContent=`${list.length} here`;
-    $('roster').replaceChildren(...list.map(p=>{let e=document.createElement('span');e.className='person';e.textContent=p.name+(p.id===me?' (you)':'')+(p.color==='white'?' ♔':p.color==='black'?' ♚':'');if(p.voice){let v=document.createElement('b');v.className='voice';v.textContent=' · mic';e.append(v);}return e;}));
+    $('roster').replaceChildren(...list.map(p=>{let e=document.createElement('span');e.className='person';e.style.color=p.nameColor||'#fff4e7';e.style.borderColor=(p.nameColor||'#fff4e7')+'66';e.textContent=p.name+(p.id===me?' (you)':'')+(p.color==='white'?' ♔':p.color==='black'?' ♚':'');if(p.voice){let v=document.createElement('b');v.className='voice';v.textContent=' · mic';e.append(v);}return e;}));
     const whiteName=list.find(p=>p.color==='white')?.name||'waiting',blackName=list.find(p=>p.color==='black')?.name||'waiting';
     $('chessSeat').textContent=`♔ ${whiteName}  ·  ♚ ${blackName}`;
     renderBoard();
   }
   function toast(text,ms=2800){const t=$('toast');t.textContent=text;t.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.hidden=true,ms);}
   function send(obj){if(ws&&ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(obj));}
-  function addMessage(name,text,system=false){const row=document.createElement('div');row.className='msg'+(system?' system':'');if(!system){let n=document.createElement('span');n.className='name';n.textContent=name+':';row.append(n);}row.append(document.createTextNode(text));$('chatlog').append(row);$('chatlog').scrollTop=$('chatlog').scrollHeight;}
+  function addMessage(name,text,system=false,id=null){const row=document.createElement('div');row.className='msg'+(system?' system':'');if(!system){let n=document.createElement('span');n.className='name';n.textContent=name+':';const color=roster.find(p=>p.id===id)?.nameColor;if(color)n.style.color=color;row.append(n);}row.append(document.createTextNode(text));$('chatlog').append(row);$('chatlog').scrollTop=$('chatlog').scrollHeight;}
   const delay=ms=>new Promise(r=>setTimeout(r,ms));
   async function connect(create,code,name){
     if(ws)ws.close();const avatar={coat:avatarConfig.coat,hair:avatarConfig.hair,skin:avatarConfig.skin};
@@ -100,18 +100,19 @@
         if(m.type==='error'){clearTimeout(timeout);toast(m.message,4000);reject(new Error(m.message));try{ws.close();}catch{}return;}
         if(m.type==='welcome'){
           clearTimeout(timeout);me=m.id;roomCode=m.room;isHost=m.host;if(Array.isArray(m.iceServers)&&m.iceServers.length)rtcConfig={iceServers:m.iceServers};setRoster(m.players||[]);
-          const self=(m.players||[]).find(p=>p.id===me);if(self){const mine=makeAvatar(me,self.name,self.avatar,true);mine.root.position.copy(playerPos);}
+          const self=(m.players||[]).find(p=>p.id===me);if(self){const mine=makeAvatar(me,self.name,self.avatar,true);mine.root.position.copy(playerPos);mine.nameColor=self.nameColor||'#ffd166';mine.label.style.color=mine.nameColor;}
           lastSentX=playerPos.x;lastSentZ=playerPos.z;sendMove();
           $('roomBadge').textContent=roomCode;$('landing').hidden=true;$('side').classList.add('open');
           if(m.chessFen){try{chess.load(m.chessFen);renderBoard();}catch{}}
           addMessage('',`Welcome to the fire. Room code: ${roomCode}.`,true);resolve(m);return;
         }
         if(m.type==='players')setRoster(m.players||[]);
-        else if(m.type==='chat')addMessage(m.name,m.text);
+        else if(m.type==='chat')addMessage(m.name,m.text,false,m.id);
         else if(m.type==='move'){let a=avatars.get(m.id);if(a){a.target=new THREE.Vector3(Number(m.x)||0,0,Number(m.z)||0);if(m.emote)playEmote(a,m.emote);}}
         else if(m.type==='avatar'){let a=avatars.get(m.id);if(a)recolor(a,m.avatar);}
         else if(m.type==='signal')await receiveSignal(m);
         else if(m.type==='chessMove')receiveChess(m);
+        else if(m.type==='chessReject'){if(m.fen){try{chess.load(m.fen);}catch{chess.reset();}}else chess.reset();selectedSquare=null;validTargets=[];renderBoard();toast(m.message||'That move was out of turn.');}
         else if(m.type==='chessReset'){chess.reset();lastMove='';renderBoard();toast('A fresh chess game is ready.');}
         else if(m.type==='hostLeft'){addMessage('',`The room host left. This hangout has ended.`,true);toast('Host left the room.',5000);}
       };
@@ -126,8 +127,8 @@
   function ensurePeer(id){
     if(!id||id===me||peerLinks.has(id))return peerLinks.get(id);
     const pc=new RTCPeerConnection(rtcConfig),trans=pc.addTransceiver('audio',{direction:'sendrecv'}),entry={pc,trans,pending:[],remote:null};peerLinks.set(id,entry);
-    if(localStream)trans.sender.replaceTrack(localStream.getAudioTracks()[0]||null).catch(()=>{});
-    pc.onicecandidate=e=>{if(e.candidate)send({type:'signal',to:id,candidate:e.candidate});};
+    if(localStream)trans.sender.replaceTrack(localStream.getAudioTracks()[0]||null).catch(err=>console.warn('Could not attach microphone track:',err));
+    pc.onicecandidate=e=>{if(e.candidate)send({type:'signal',to:id,candidate:e.candidate.toJSON?e.candidate.toJSON():e.candidate});};
     pc.ontrack=e=>{
       // addTransceiver() can deliver a streamless track in some browsers; wrap it in a MediaStream.
       let stream=e.streams&&e.streams[0];
@@ -137,14 +138,14 @@
       audio.srcObject=stream;audio.play().catch(()=>toast('Voice is connected. Tap the microphone once to enable incoming audio.',5000));
     };
     pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed')toast('Voice connection blocked by the network. A TURN relay may be needed.',6000);};
-    if(me<id)pc.createOffer().then(o=>pc.setLocalDescription(o)).then(()=>send({type:'signal',to:id,description:pc.localDescription})).catch(()=>{});
+    if(me<id)pc.createOffer().then(o=>pc.setLocalDescription(o)).then(()=>{const d=pc.localDescription;send({type:'signal',to:id,description:d.toJSON?d.toJSON():{type:d.type,sdp:d.sdp}});}).catch(err=>{console.warn('Voice offer failed:',err);toast('Could not start a voice connection. Reload and try again.',5000);});
     return entry;
   }
   async function receiveSignal(m){
     const e=ensurePeer(m.from);if(!e)return;
     try{
       if(m.description){await e.pc.setRemoteDescription(m.description);for(const c of e.pending.splice(0))await e.pc.addIceCandidate(c);
-        if(m.description.type==='offer'){const ans=await e.pc.createAnswer();await e.pc.setLocalDescription(ans);send({type:'signal',to:m.from,description:e.pc.localDescription});}}
+        if(m.description.type==='offer'){const ans=await e.pc.createAnswer();await e.pc.setLocalDescription(ans);const d=e.pc.localDescription;send({type:'signal',to:m.from,description:d.toJSON?d.toJSON():{type:d.type,sdp:d.sdp}});}}
       if(m.candidate){if(e.pc.remoteDescription)await e.pc.addIceCandidate(m.candidate);else e.pending.push(m.candidate);}
     }catch(err){console.warn('Voice signaling:',err);}
   }
@@ -165,7 +166,7 @@
   $('customBtn').onclick=()=>{$('coatEdit').value=avatarConfig.coat;$('hairEdit').value=avatarConfig.hair;$('skinEdit').value=avatarConfig.skin;$('customModal').hidden=false;};
   $('saveAvatar').onclick=()=>{avatarConfig.coat=$('coatEdit').value;avatarConfig.hair=$('hairEdit').value;avatarConfig.skin=$('skinEdit').value;let a=avatars.get(me);if(a)recolor(a,avatarConfig);send({type:'avatar',avatar:avatarConfig});$('customModal').hidden=true;};
   document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).hidden=true);
-  $('chatForm').onsubmit=e=>{e.preventDefault();const text=$('chatInput').value.trim();if(!text)return;if(!me){addMessage($('nameInput').value||'You',text);$('chatInput').value='';return;}send({type:'chat',text});addMessage($('nameInput').value.trim()||'You',text);$('chatInput').value='';};
+  $('chatForm').onsubmit=e=>{e.preventDefault();const text=$('chatInput').value.trim();if(!text)return;if(!me){addMessage($('nameInput').value||'You',text);$('chatInput').value='';return;}send({type:'chat',text});addMessage($('nameInput').value.trim()||'You',text,false,me);$('chatInput').value='';};
   $('chatToggle').onclick=()=>$('side').classList.toggle('open');
   $('roomBadge').onclick=async()=>{try{await navigator.clipboard.writeText(roomCode);toast('Room code copied.');}catch{toast(`Room code: ${roomCode}`);}};
   $('leaveBtn').onclick=()=>{if(ws)ws.close();location.reload();};
@@ -210,7 +211,8 @@
   function labelPosition(a){const v=new THREE.Vector3(a.root.position.x,2.55,a.root.position.z).project(camera);a.label.hidden=v.z>1;if(!a.label.hidden)a.label.style.transform=`translate(${(v.x*.5+.5)*innerWidth}px,${(-v.y*.5+.5)*innerHeight}px) translate(-50%,-100%)`;if(a.bubble){const b=new THREE.Vector3(a.root.position.x,3.35,a.root.position.z).project(camera);a.bubble.style.transform=`translate(${(b.x*.5+.5)*innerWidth}px,${(-b.y*.5+.5)*innerHeight}px) translate(-50%,-50%)`;}}
   let last=performance.now(),time=0,lastNet=0,lastSentX=NaN,lastSentZ=NaN;
   function frame(){requestAnimationFrame(frame);const now=performance.now(),dt=Math.min(.05,(now-last)/1000);last=now;time+=dt;
-    fireLight.intensity=2.8+Math.sin(time*8)*.35+Math.sin(time*13)*.18;flames.forEach((f,i)=>{f.scale.y=.7+Math.sin(time*8+i*1.7)*.23;f.rotation.z=Math.sin(time*3+i)*.16;f.material.opacity=.72+Math.sin(time*11+i)*.15;});
+    // Keep the campfire alive but gentle: slower, smaller light and flame variations reduce visual fatigue.
+    fireLight.intensity=2.65+Math.sin(time*1.15)*.11+Math.sin(time*2.05)*.045;flames.forEach((f,i)=>{f.scale.y=.82+Math.sin(time*1.8+i*1.1)*.075;f.rotation.z=Math.sin(time*1.1+i*.7)*.055;f.material.opacity=.81+Math.sin(time*2.2+i*.8)*.045;});
     const meObj=avatars.get(me);let dx=0,dz=0;if(meObj){const f=(keys.w||keys.arrowup?1:0)-(keys.s||keys.arrowdown?1:0),r=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrowleft?1:0);if(f||r){const sy=Math.sin(cameraYaw),cy=Math.cos(cameraYaw);dx=-sy*f+cy*r;dz=-cy*f-sy*r;moveTarget=null;}if(!dx&&!dz&&moveTarget){dx=moveTarget.x-playerPos.x;dz=moveTarget.z-playerPos.z;const d=Math.hypot(dx,dz);if(d<.25){moveTarget=null;dx=dz=0;}else{dx/=d;dz/=d;}}if(dx||dz){let l=Math.hypot(dx,dz);playerPos.x+=dx/l*4.3*dt;playerPos.z+=dz/l*4.3*dt;playerPos.x=Math.max(-18,Math.min(18,playerPos.x));playerPos.z=Math.max(-18,Math.min(18,playerPos.z));meObj.root.position.copy(playerPos);meObj.root.rotation.y=Math.atan2(dx,dz);meObj.phase+=dt*10;} }
     for(const a of avatars.values()){
       let walking=!!(a.isMe&&(dx||dz));
