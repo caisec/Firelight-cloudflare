@@ -113,7 +113,7 @@
         else if(m.type==='signal')await receiveSignal(m);
         else if(m.type==='chessMove')receiveChess(m);
         else if(m.type==='chessReject'){if(m.fen){try{chess.load(m.fen);}catch{chess.reset();}}else chess.reset();selectedSquare=null;validTargets=[];renderBoard();toast(m.message||'That move was out of turn.');}
-        else if(m.type==='chessReset'){chess.reset();lastMove='';renderBoard();toast('A fresh chess game is ready.');}
+        else if(m.type==='chessReset'){chess.reset();lastMove='';selectedSquare=null;validTargets=[];const pp=document.getElementById('promoPicker');if(pp)pp.remove();renderBoard();toast('A fresh chess game is ready.');}
         else if(m.type==='hostLeft'){addMessage('',`The room host left. This hangout has ended.`,true);toast('Host left the room.',5000);}
       };
       ws.onclose=()=>{if(me){addMessage('',`Connection closed.`,true);toast('Disconnected from the hangout.',4000);} };
@@ -180,21 +180,49 @@
     const whiteView=myColor!=='black';
     for(let i=0;i<64;i++){
       const row=Math.floor(i/8),rank=whiteView?7-row:row,file=whiteView?i%8:7-(i%8),sq=String.fromCharCode(97+file)+(rank+1),piece=boardArray[7-rank][file];
-      const cell=document.createElement('button');cell.type='button';cell.className='sq '+((rank+file)%2?'dark':'light');cell.dataset.square=sq;
+      const cell=document.createElement('button');cell.type='button';cell.className='sq '+((rank+file)%2?'light':'dark');cell.dataset.square=sq;
       if(selectedSquare===sq)cell.classList.add('selected');if(validTargets.includes(sq))cell.classList.add('target');if(lastMove.split('-').includes(sq))cell.classList.add('last');
       if(piece){const glyph=document.createElement('span');glyph.className='piece '+(piece.color==='w'?'white':'black');glyph.textContent=({w:{k:'♔',q:'♕',r:'♖',b:'♗',n:'♘',p:'♙'},b:{k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟'}}[piece.color][piece.type]);cell.append(glyph);}
       if((whiteView&&file===0)||(!whiteView&&file===7)){const c=document.createElement('small');c.className='coord rank';c.textContent=String(rank+1);cell.append(c);}
       if((whiteView&&rank===0)||(!whiteView&&rank===7)){const c=document.createElement('small');c.className='coord file';c.textContent=String.fromCharCode(97+file);cell.append(c);}
       cell.onclick=()=>boardClick(sq);board.append(cell);
     }
-    let status=!ready?'Waiting for a second friend to take Black':chess.in_checkmate()?'Checkmate — '+(chess.turn()==='w'?'Black':'White')+' wins':chess.in_draw()?'Draw':(chess.turn()==='w'?'White':'Black')+' to move'+(chess.in_check()?' · check':'');$('chessStatus').textContent=status;
+    let status=!ready?'Waiting for a second friend to take Black':chess.in_checkmate()?'Checkmate — '+(chess.turn()==='w'?'Black':'White')+' wins':chess.in_stalemate()?'Draw — stalemate':chess.in_threefold_repetition()?'Draw — threefold repetition':chess.insufficient_material()?'Draw — insufficient material':chess.in_draw()?'Draw':(chess.turn()==='w'?'White':'Black')+' to move'+(chess.in_check()?' · check':'');$('chessStatus').textContent=status;
     $('resetChess').disabled=!isHost||!ready;
   }
   function boardClick(sq){if(!me)return;if(!chessSeatsReady()){toast('Invite one friend to join as Black before starting chess.');return;}if(myColor!=='white'&&myColor!=='black'){toast('You are watching this game. The two players make the moves.');return;}const mine=(myColor==='white'&&chess.turn()==='w')||(myColor==='black'&&chess.turn()==='b');if(!mine){toast('Wait for your color to move.');return;}
+    if(chess.game_over()){toast('The game is over. The host can start a new one.');return;}
     const piece=chess.get(sq);
     if(selectedSquare&&validTargets.includes(sq)){
-      let move=chess.move({from:selectedSquare,to:sq,promotion:'q'});if(move){lastMove=move.from+'-'+move.to;selectedSquare=null;validTargets=[];renderBoard();send({type:'chessMove',move:{from:move.from,to:move.to,promotion:move.promotion},fen:chess.fen()});return;}}
+      const from=selectedSquare,mover=chess.get(from);
+      const promoting=mover&&mover.type==='p'&&((mover.color==='w'&&sq[1]==='8')||(mover.color==='b'&&sq[1]==='1'));
+      if(promoting){askPromotion(mover.color,p=>playMove(from,sq,p));return;}
+      playMove(from,sq);return;
+    }
     if(piece&&piece.color===chess.turn()){selectedSquare=sq;validTargets=chess.moves({square:sq,verbose:true}).map(m=>m.to);}else{selectedSquare=null;validTargets=[];}renderBoard();
+  }
+  function playMove(from,to,promotion){
+    const move=chess.move(promotion?{from,to,promotion}:{from,to});
+    selectedSquare=null;validTargets=[];
+    if(!move){renderBoard();return;}
+    lastMove=move.from+'-'+move.to;renderBoard();
+    send({type:'chessMove',move:{from:move.from,to:move.to,promotion:move.promotion},fen:chess.fen()});
+  }
+  // Pawn promotion picker (shown only to the player who is promoting).
+  function askPromotion(color,done){
+    const old=document.getElementById('promoPicker');if(old)old.remove();
+    const wrap=document.createElement('div');wrap.id='promoPicker';
+    Object.assign(wrap.style,{position:'fixed',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(8,8,16,.6)',zIndex:60});
+    const box=document.createElement('div');Object.assign(box.style,{display:'flex',gap:'10px',padding:'14px',borderRadius:'14px',background:'#1d1b2e',border:'1px solid #ffffff33'});
+    const glyphs={w:{q:'♕',r:'♖',b:'♗',n:'♘'},b:{q:'♛',r:'♜',b:'♝',n:'♞'}}[color];
+    for(const t of ['q','r','b','n']){
+      const btn=document.createElement('button');btn.type='button';btn.textContent=glyphs[t];btn.title={q:'Queen',r:'Rook',b:'Bishop',n:'Knight'}[t];
+      Object.assign(btn.style,{fontSize:'44px',width:'66px',height:'66px',borderRadius:'10px',border:'1px solid #ffffff44',background:'#f1e6d0',color:'#111',cursor:'pointer'});
+      btn.onclick=()=>{wrap.remove();done(t);};box.append(btn);
+    }
+    wrap.append(box);
+    wrap.onclick=e=>{if(e.target===wrap){wrap.remove();selectedSquare=null;validTargets=[];renderBoard();}};
+    document.body.append(wrap);
   }
   function receiveChess(m){if(m.fen){try{chess.load(m.fen);if(m.move)lastMove=m.move.from+'-'+m.move.to;selectedSquare=null;validTargets=[];renderBoard();}catch{}}}
   $('chessBtn').onclick=()=>{$('chessModal').hidden=false;renderBoard();};
